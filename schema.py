@@ -54,3 +54,4 @@ class UserCreateResponse(BaseModel):
     api_key: str 
     role: str
     credits: int
+
