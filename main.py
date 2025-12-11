@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 import re
 from typing import List
-import secrets
+import secrets, hashlib
 
 from database import get_db
 import schema as schemas
@@ -18,11 +18,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+#hasing the api_key
+def hash_key(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
 
 # --- AUTHENTICATION HELPER ---
 def get_current_user(x_api_key: str = Header(...), db: Session = Depends(get_db)):
     
-    query = text("SELECT * FROM users WHERE api_key = :api_key")
+    hashed_input = hash_key(x_api_key)
+
+    query = text("SELECT * FROM users WHERE api_key = :hashed_key")
     user = db.execute(query, {"api_key": x_api_key}).fetchone()
     
     if not user:
