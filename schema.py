@@ -42,3 +42,15 @@ class AuditLogResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# --- User Management Schemas ---
+class UserCreateRequest(BaseModel):
+    username: str
+    role: str 
+
+class UserCreateResponse(BaseModel):
+    username: str
+    api_key: str 
+    role: str
+    credits: int

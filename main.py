@@ -1,16 +1,16 @@
 from fastapi import FastAPI, Depends, HTTPException, Header
-from fastapi.middleware.cors import CORSMiddleware  # <--- IMPORT THIS
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import re
 from typing import List
+import secrets
 
 from database import get_db
 import schema as schemas
 
 app = FastAPI(title="Command Gateway API")
 
-# --- FIX: ADD CORS MIDDLEWARE ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -45,16 +45,15 @@ def execute_command(
     # 2. Fetch Rules (Ordered by ID for now, priority in real apps)
     rules = db.execute(text("SELECT * FROM rules ORDER BY id ASC")).fetchall()
     
-    decision = "block" # Default safety net
+    decision = "block" 
     matched_rule = "Default Block"
 
     # 3. Rule Engine (First Match Wins)
     for rule in rules:
-        # Check regex
         if re.search(rule.pattern, command_text):
-            decision = rule.action # 'allow' or 'block'
+            decision = rule.action 
             matched_rule = rule.pattern
-            break # Stop checking other rules
+            break 
     
     # 4. Handle Decision
     final_status = "REJECTED"
@@ -62,14 +61,12 @@ def execute_command(
     
     if decision == 'allow':
         try:
-            # Transaction: Deduct Credit
+            
             update_credits = text("UPDATE users SET credits = credits - 1 WHERE id = :uid")
             db.execute(update_credits, {"uid": user.id})
             
             final_status = "EXECUTED"
             response_msg = "Command executed successfully"
-            # In a real app, you would run os.system() here (DANGEROUS!)
-            # Here we just mock it.
             
         except Exception as e:
             db.rollback()
@@ -87,9 +84,9 @@ def execute_command(
         "resp": response_msg
     })
     
-    db.commit() # Save all changes
+    db.commit() 
 
-    # Get updated credits
+    
     user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user.id}).fetchone()
 
     return {
@@ -108,7 +105,6 @@ def create_rule(
     if user.role != 'admin':
         raise HTTPException(status_code=403, detail="Admins only")
     
-    # Validate Regex Logic
     try:
         re.compile(rule.pattern)
     except re.error:
@@ -146,7 +142,7 @@ def get_audit_logs(
     if user.role != 'admin':
         raise HTTPException(status_code=403, detail="Admins only")
     
-    # SQL JOIN to get the username alongside the log data
+    
     sql = text("""
         SELECT audit_logs.*, users.username 
         FROM audit_logs 
@@ -157,3 +153,44 @@ def get_audit_logs(
     
     logs = db.execute(sql).fetchall()
     return logs
+
+# --- ADMIN ENDPOINT: CREATE USER ---
+@app.post("/users", response_model=schemas.UserCreateResponse)
+def create_user(
+    new_user: schemas.UserCreateRequest,
+    user = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # 1. Authorization Check
+    if user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admins only")
+    
+    # 2. Check if username exists
+    existing = db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": new_user.username}).fetchone()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already taken")
+
+    # 3. Generate Secure API Key
+    generated_key = secrets.token_urlsafe(16)
+    initial_credits = 100
+    
+    try:
+        insert_query = text("""
+            INSERT INTO users (username, api_key, role, credits)
+            VALUES (:name, :key, :role, :creds)
+            RETURNING username, api_key, role, credits
+        """)
+        
+        created_user = db.execute(insert_query, {
+            "name": new_user.username,
+            "key": generated_key,
+            "role": new_user.role,
+            "creds": initial_credits
+        }).fetchone()
+        
+        db.commit()
+        return created_user
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database error")
