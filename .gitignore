@@ -1,7 +1,5 @@
-# --- Python Backend ---
-backend/venv/
-backend/__pycache__/
+venv/
+__pycache__/
 *.pyc
 *.db
-backend/*.db
 .env
